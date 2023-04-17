@@ -1,0 +1,66 @@
+function validateVAT(country, vatNumber, retries = 5) {
+  const url = `https://ec.europa.eu/taxation_customs/vies/rest-api/ms/${country}/vat/${vatNumber}`;
+  const options = {
+    'muteHttpExceptions': true,
+    'headers': {
+      'Accept': 'application/json'
+    }
+  };
+
+  while (retries > 0) {
+    const response = UrlFetchApp.fetch(url, options);
+
+    if (response.getResponseCode() == 200) {
+      const json = JSON.parse(response.getContentText());
+      const requestIdentifier = json.rawRequest ? json.rawRequest.match(/(?<=\()(\w+)(?=\))/g) : '';
+
+      if (json.isValid === true) {
+        return {
+          'valid': 'Valid',
+          'requestIdentifier': requestIdentifier ? requestIdentifier[0] : ''
+        };
+      } else if (json.isValid === false) {
+        return {
+          'valid': 'Invalid',
+          'requestIdentifier': requestIdentifier ? requestIdentifier[0] : ''
+        };
+      }
+    }
+    retries--;
+    Utilities.sleep(3000); // Wait 3 seconds before retrying
+  }
+
+  // If retries are exhausted, return an error
+  return {
+    'valid': 'Error',
+    'requestIdentifier': ''
+  };
+}
+
+function validateVATNumbers() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Rapport');
+  const firstRow = 2;
+  const vatNumberColumn = 5;
+  const vatNumberDataColumn = 6;
+  const validationColumn = 11;
+  const consultationNumberColumn = 12;
+
+  const numRows = sheet.getLastRow() - firstRow + 1;
+  const vatNumbers = sheet.getRange(firstRow, vatNumberColumn, numRows, 2).getValues();
+
+  for (let i = 0; i < vatNumbers.length; i++) {
+    const countryCode = vatNumbers[i][0];
+    const vatNumber = vatNumbers[i][1];
+
+    if (countryCode !== '' && vatNumber !== '' && vatNumber !== undefined) {
+      const validationResult = validateVAT(countryCode, vatNumber);
+      sheet.getRange(firstRow + i, validationColumn).setValue(validationResult.valid);
+      sheet.getRange(firstRow + i, consultationNumberColumn).setValue(validationResult.requestIdentifier);
+
+      SpreadsheetApp.flush();
+
+      // Add a 3-second delay between requests
+      Utilities.sleep(3000);
+    }
+  }
+}
